@@ -1,19 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import '@radix-ui/themes/styles.css';
-import { Excalidraw } from '@excalidraw/excalidraw';
+import Editor from '@monaco-editor/react'
 import { Slider } from '@radix-ui/themes';
 import { Loro, LoroList, LoroMap, OpId, toReadableVersion } from 'loro-crdt';
 import deepEqual from 'deep-equal';
 import './App.css'
-import { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types/types';
-
 
 function App() {
-  const excalidrawAPI = useRef<ExcalidrawImperativeAPI>();
   const versionsRef = useRef<OpId[][]>([]);
   const [maxVersion, setMaxVersion] = useState(-1);
   const [docSize, setDocSize] = useState(0);
   const [vv, setVV] = useState("")
+  const [editorValue,setEditorValue] = useState("")
   const channel = useMemo(() => {
     return new BroadcastChannel("temp");
   }, []);
@@ -55,7 +53,8 @@ function App() {
         setDocSize(data.length);
       }
       if (e.fromCheckout || !e.local) {
-        excalidrawAPI.current?.updateScene({ elements: docElements.getDeepValue() })
+        const value = docElements.getDeepValue().map(({content}:{content:string})=>content).join('\n')
+        setEditorValue(value)
       }
     });
     setTimeout(() => {
@@ -70,29 +69,39 @@ function App() {
     return { doc, docElements }
   }, [channel]);
 
+  function handleEditorChange (value:string | undefined) {
+    if(!value) return
+
+    const contentList = value.split('\n')
+    const elements:{version:number,content:string}[] = []
+    for (const content of contentList) {
+      const charList = content.split('')
+      let version = 0
+      for (const char of charList) {
+        version += char.charCodeAt(0)
+      }
+      elements.push({version,content})
+    }
+    recordLocalOps(docElements,elements)
+    doc.commit()
+    lastVersion.current = getVersion(elements)
+    setEditorValue(value)
+  }
+
+
   const [versionNum, setVersionNum] = useState(-1);
   const lastVersion = useRef(-1);
   return (
     <div >
       <div style={{ width: "100%", height: "calc(100vh - 100px)" }}>
-        <Excalidraw
-          excalidrawAPI={api => { excalidrawAPI.current = api }}
-          viewModeEnabled={versionNum !== maxVersion}
-          onChange={(elements) => {
-            const v = getVersion(elements);
-            if (lastVersion.current === v) {
-              // local change, should detect and record the diff to loro doc
-              if (recordLocalOps(docElements, elements)) {
-                doc.commit();
-              }
-              // if (!deepEqual(docElements.getDeepValue(), elements)) {
-              //   console.log(docElements.getDeepValue(), elements);
-              // }
-            }
-
-            lastVersion.current = v;
-          }}
+        <Editor
+         defaultLanguage="javascript"
+         value={editorValue}
+         onChange={handleEditorChange}
+         // theme="nord"
+         theme="light"
         />
+
       </div>
       <div style={{ margin: "1em 2em" }}>
         <div style={{ fontSize: "0.8em" }}>
